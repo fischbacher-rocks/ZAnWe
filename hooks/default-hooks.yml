@@ -1,0 +1,9 @@
+---
+
+- id: "health"
+  execute-command: "/bin/echo"
+  command-working-directory: "/tmp"
+  pass-arguments-to-command:
+    - source: string
+      name: "OK"
+  include-command-output-in-response: true
