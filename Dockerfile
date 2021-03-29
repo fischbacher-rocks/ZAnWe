@@ -1,22 +1,48 @@
+##
+##
+##
+FROM python:3.9-slim-buster AS AWH_IMAGE
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        tzdata \
+        wget;
+WORKDIR /tmp
+ENV WEBHOOK_VERSION=2.8.0
+RUN wget https://github.com/adnanh/webhook/releases/download/$WEBHOOK_VERSION/webhook-linux-amd64.tar.gz && \
+    tar -xzf webhook-linux-amd64.tar.gz --strip 1
 
-FROM        golang:1.16.2-alpine3.13 AS BUILD_IMAGE
-RUN         apk add --update --no-cache -t build-deps curl gcc libc-dev libgcc
-WORKDIR     /go/src/github.com/adnanh/webhook
-ENV         WEBHOOK_VERSION=2.8.0
-RUN         curl -#L -o webhook.tar.gz https://api.github.com/repos/adnanh/webhook/tarball/$(WEBHOOK_VERSION) && \
-            tar -xzf webhook.tar.gz --strip 1 &&  \
-            go get -d && \
-            go build -ldflags="-s -w" -o /usr/local/bin/webhook
+##
+##
+##
+FROM python:3.9-slim-buster
 
-FROM        alpine:3.13
-RUN         apk add --update --no-cache curl tini tzdata
-COPY        --from=BUILD_IMAGE /usr/local/bin/webhook /usr/local/bin/webhook
+# runtime dependencies
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        tzdata \
+        tini \
+        curl \
+        wget \
+    ; \
+    rm -rf /var/lib/apt/lists/*
 
-COPY        ./docker-entrypoint.sh /
-COPY        ./hooks/ /var/lib/zanwe/hooks/
+COPY --from=AWH_IMAGE /tmp/webhook /usr/local/bin/webhook
 
-WORKDIR     /zanwe
+COPY ./build/ /build
+COPY ./docker-entrypoint.sh /
+COPY ./zanwe/ /var/lib/zanwe
 
-EXPOSE      9000
+RUN pip3 install \
+      --disable-pip-version-check --no-cache --upgrade --upgrade-strategy=only-if-needed \
+      -r /build/requirements.txt; \
+    ansible-galaxy collection install -r /build/requirements.yml;
 
-ENTRYPOINT  ["/sbin/tini", "--", "/docker-entrypoint.sh"]
+WORKDIR /zanwe
+
+EXPOSE 9000
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/docker-entrypoint.sh"]
